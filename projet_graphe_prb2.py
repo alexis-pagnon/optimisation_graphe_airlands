@@ -25,7 +25,7 @@ Objectif: min max Xi (minimiser le makespan)
 """
 
 # Étape 0: Ouvrir le fichier avec nos variables
-airland_file = open("airland2.txt")
+airland_file = open("./airlands/airland2.txt")
 """
 The format of these data files is:
 number of planes (p), freeze time

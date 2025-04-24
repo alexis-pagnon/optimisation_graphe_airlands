@@ -25,7 +25,7 @@ Objectif: min Σ max(0, xi + ti - Ai)
 """
 
 # Étape 0: Ouvrir le fichier avec nos variables
-airland_file = open("airland1.txt")
+airland_file = open("./airlands/airland1.txt")
 """
 The format of these data files is:
 number of planes (p), freeze time
