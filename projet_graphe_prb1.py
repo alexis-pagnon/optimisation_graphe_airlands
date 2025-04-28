@@ -4,10 +4,14 @@
 # 31/05/2025
 # --------------------------------------------------
 
-import cplex
+import docplex
+import docplex.mp
+import docplex.mp.model
 import numpy as np
 
 """
+Problème 1 : Minimisation du retard pondéré avec des heures d'atterrissage cibles 
+
 Contraintes :
 
 Ei<=Xi<=Li                                 (2)
@@ -81,153 +85,107 @@ print(f"Coûts de pénalité pour atterrissage après la cible: {c_plus}")
 print(f"Exemple de temps de séparation (premier avion): {s[0]}")
 
 # Étape 1: Création du modèle
-model = cplex.Cplex()
-model.objective.set_sense(model.objective.sense.minimize)
+model = docplex.mp.model.Model("Probleme1")
 
 # Calculer une grande valeur M pour les contraintes (pour transformer les OU en ET)
 M = max(L) + max([max(s_i) for s_i in s]) * n
 
 # Étape 2: Ajout des variables de décision
 # x_i: heure d'atterrissage de l'avion i
-x_names = [f"x_{i}" for i in range(n)]
-model.variables.add(names=x_names, lb=[E[i] for i in range(n)], ub=[L[i] for i in range(n)]) # E_i <= x_i <= L_i
+x = model.continuous_var_dict(range(n), lb=lambda i: E[i], ub=lambda i: L[i], name=lambda i: f"x_{i}")
 
 # alpha_i, beta_i: écarts par rapport à l'heure cible
-alpha_names = [f"alpha_{i}" for i in range(n)]
-beta_names = [f"beta_{i}" for i in range(n)]
-model.variables.add(names=alpha_names, lb=[0] * n)  # alpha_i >= 0
-model.variables.add(names=beta_names, lb=[0] * n)   # beta_i >= 0
+alpha = model.continuous_var_dict(range(n), lb=0, name=lambda i: f"alpha_{i}")
+beta = model.continuous_var_dict(range(n), lb=0, name=lambda i: f"beta_{i}")
 
 # y_ij: variable binaire pour l'ordre d'atterrissage
-y_names = [f"y_{i}_{j}" for i in range(n) for j in range(n) if i != j]
-model.variables.add(names=y_names, lb=[0] * len(y_names), ub=[1] * len(y_names), types=["B"] * len(y_names))    # 0 <= y_i_j <= 1 variable binaire
+y = model.binary_var_dict([(i, j) for i in range(n) for j in range(n) if i != j], name=lambda ij: f"y_{ij[0]}_{ij[1]}")
 
 # delta_ij: variable binaire pour l'affectation des pistes
-delta_names = [f"delta_{i}_{j}" for i in range(n) for j in range(n) if i != j]
-model.variables.add(names=delta_names, lb=[0] * len(delta_names), ub=[1] * len(delta_names), # 0 <= delta_i_j <= 1 variable binaire
-                    types=["B"] * len(delta_names))
+delta = model.binary_var_dict([(i, j) for i in range(n) for j in range(n) if i != j], name=lambda ij: f"delta_{ij[0]}_{ij[1]}")
 
 # gamma_ir: variable binaire pour l'affectation de l'avion i à la piste r
-gamma_names = [f"gamma_{i}_{r}" for i in range(n) for r in range(m)]
-model.variables.add(names=gamma_names, lb=[0] * len(gamma_names), ub=[1] * len(gamma_names), # 0 <= gamma_i_j <= 1 variable binaire
-                    types=["B"] * len(gamma_names))
+gamma = model.binary_var_dict([(i, r) for i in range(n) for r in range(m)], name=lambda ir: f"gamma_{ir[0]}_{ir[1]}")
 
-# Définir la fonction objectif: minimiser la somme des pénalités
-objective = [(alpha_names[i], c_minus[i]) for i in range(n)] + [(beta_names[i], c_plus[i]) for i in range(n)] # alpha_i * c_i- + beta_i * c_i+
-model.objective.set_linear(objective)
+# Définir la fonction objectif: minimiser le makespan
+model.minimize(sum((alpha[i]*c_minus[i] + beta[i]*c_plus[i]) for i in range(n)))
 
 # Étape 3: Ajout des contraintes
 for i in range(n):
     # Contrainte (3): Xi - Ti = αi - βi
-    ind = [x_names[i], alpha_names[i], beta_names[i]]
-    val = [1.0, -1.0, 1.0]
-    model.linear_constraints.add(
-        lin_expr=[cplex.SparsePair(ind=ind, val=val)],  # Xi - αi + βi
-        senses=["E"],                                   # ==
-        rhs=[T[i]]                                      # Ti
-    )
+    model.add_constraint(x[i] - T[i] == alpha[i] - beta[i])
 
     # Contrainte (7): (Somme(r=1 à m) de γir) = 1
-    ind = [gamma_names[gamma_names.index(f"gamma_{i}_{r}")] for r in range(m)]
-    val = [1.0] * m
-    model.linear_constraints.add(
-        lin_expr=[cplex.SparsePair(ind=ind, val=val)],  # y1r + y2r + ...
-        senses=["E"],                                   # ==
-        rhs=[1]                                         # 1
-    )
+    model.add_constraint(sum(gamma[(i,r)] for r in range(m)) == 1)
 
     for j in range(n):
         # Contrainte (4): Xj - Xi >= Sij * δij - M * Yji
         if i != j:
-            # Récupérer l'indice de y_ji
-            y_ji_idx = y_names.index(f"y_{j}_{i}")
-            delta_ij_idx = delta_names.index(f"delta_{i}_{j}")
-
-            ind = [x_names[j], x_names[i], delta_names[delta_ij_idx], y_names[y_ji_idx]]
-            val = [1.0, -1.0, -s[i][j], M]
-            model.linear_constraints.add(
-                lin_expr=[cplex.SparsePair(ind=ind, val=val)],  # Xj - Xi - Sij * δij + M * Yji
-                senses=["G"],                                   # >=
-                rhs=[0]                                         # 0
-            )
+            model.add_constraint(x[j] - x[i] >= delta[(i,j)] * s[i][j] - y[(j,i)] * M )
 
         # Contrainte (5): Yij + Yji = 1
         if i < j:  # Pour éviter la redondance, on ne considère que les paires (i,j) où i < j
-            y_ij_idx = y_names.index(f"y_{i}_{j}")
-            y_ji_idx = y_names.index(f"y_{j}_{i}")
-
-            ind = [y_names[y_ij_idx], y_names[y_ji_idx]]
-            val = [1.0, 1.0]
-            model.linear_constraints.add(
-                lin_expr=[cplex.SparsePair(ind=ind, val=val)],  # Yij + Yji
-                senses=["E"],                                   # ==
-                rhs=[1]                                         # 1
-            )
+            model.add_constraint(y[(i,j)] + y[(j,i)] == 1)
         
         # Contrainte (6): δij >= γir + γjr - 1
         if i != j:
-            delta_ij_idx = delta_names.index(f"delta_{i}_{j}")
-
             for r in range(m):
-                gamma_ir_idx = gamma_names.index(f"gamma_{i}_{r}")
-                gamma_jr_idx = gamma_names.index(f"gamma_{j}_{r}")
-
-                ind = [delta_names[delta_ij_idx], gamma_names[gamma_ir_idx], gamma_names[gamma_jr_idx]]
-                val = [1.0, -1.0, -1.0]
-                model.linear_constraints.add(
-                    lin_expr=[cplex.SparsePair(ind=ind, val=val)],  # δij - γir - γjr
-                    senses=["G"],                                   # >=
-                    rhs=[-1]                                        # -1
-                )
+                model.add_constraint(delta[(i,j)] - gamma[(i,r)] - gamma[(j,r)] >= -1)
         
-
 # Étape 4: Résolution et affichage de la solution
 try:
-    model.solve()
+    solution = model.solve()
 
-    print("\nSolution trouvée :")
-    print("Valeur optimale de l'objectif:", model.solution.get_objective_value())
+    if(solution):
+        print("\nSolution trouvée :")
+        # model.print_solution()
+        print(f"Valeur optimale de l'objectif: {np.round(model.objective_value)}")
 
-    # Afficher les heures d'atterrissage
-    print("\nHeures d'atterrissage optimales :")
-    for i in range(n):
-        x_val = model.solution.get_values(x_names[i])
-        alpha_val = model.solution.get_values(alpha_names[i])
-        beta_val = model.solution.get_values(beta_names[i])
+        # Afficher les heures d'atterrissage
+        print("\nHeures d'atterrissage optimales :")
+        landing_times = []
+        for i in range(n):
+            x_val = x[i].solution_value
+            landing_times.append((i, x_val))
+            alpha_val = alpha[i].solution_value
+            beta_val = beta[i].solution_value
 
-        # Trouver la piste assignée
-        assigned_runway = -1
-        for r in range(m):
-            gamma_val = model.solution.get_values(f"gamma_{i}_{r}")
-            if abs(gamma_val - 1) < 1e-6:  # Presque égal à 1
-                assigned_runway = r
-                break
+            # Trouver la piste assignée
+            assigned_runway = -1
+            for r in range(m):
+                gamma_var = model.get_var_by_name(f"gamma_{i}_{r}")
+                if abs(gamma_var.solution_value - 1) < 1e-6:  # Presque égal à 1
+                    assigned_runway = r
+                    break
 
-        status = "à l'heure"
-        if alpha_val > 1e-6:
-            status = f"en avance de {alpha_val:.2f}"
-        elif beta_val > 1e-6:
-            status = f"en retard de {beta_val:.2f}"
+            status = "a l'heure"
+            if alpha_val > 1e-6:
+                status = f"en avance de {alpha_val:.2f}"
+            elif beta_val > 1e-6:
+                status = f"en retard de {beta_val:.2f}"
 
-        print(f"Avion {i}: atterrissage à {x_val:.2f} ({status}) sur la piste {assigned_runway}")
+            print(f"Avion {i}: atterrissage à {x_val:.2f} ({status}) sur la piste {assigned_runway}")
 
-    # Afficher l'ordre d'atterrissage
-    print("\nOrdre d'atterrissage par piste :")
-    landing_order = {}
+        # Afficher l'ordre d'atterrissage par piste
+        print("\nOrdre d'atterrissage par piste :")
+        landing_order = {}
 
-    for i in range(n):
-        for r in range(m):
-            gamma_val = model.solution.get_values(f"gamma_{i}_{r}")
-            if abs(gamma_val - 1) < 1e-6:  # Si l'avion i est assigné à la piste r
-                x_val = model.solution.get_values(x_names[i])
-                if r not in landing_order:
-                    landing_order[r] = []
-                landing_order[r].append((i, x_val))
+        for i in range(n):
+            for r in range(m):
+                gamma_var = model.get_var_by_name(f"gamma_{i}_{r}")
+                if abs(gamma_var.solution_value - 1) < 1e-6:
+                    x_val = x[i].solution_value
+                    if r not in landing_order:
+                        landing_order[r] = []
+                    landing_order[r].append((i, x_val))
 
-    for r in landing_order:
-        # Trier les avions par heure d'atterrissage
-        landing_order[r].sort(key=lambda x: x[1])
-        print(f"Piste {r}: {[i for i, _ in landing_order[r]]}")
+        for r in landing_order:
+            # Trier les avions par heure d'atterrissage
+            landing_order[r].sort(key=lambda x: x[1])
+            print(f"Piste {r}: {[i for i, _ in landing_order[r]]}")
 
-except cplex.exceptions.CplexError as e:
+    else:
+        print("Aucune solution trouvée")
+
+except Exception as e:
     print(f"Erreur lors de la résolution: {e}")

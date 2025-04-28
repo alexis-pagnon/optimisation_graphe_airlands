@@ -4,11 +4,15 @@
 # 31/05/2025
 # --------------------------------------------------
 
-import cplex
+import docplex
+import docplex.mp
+import docplex.mp.model
 import numpy as np
 
+
+
 """
-Problème 2 : Minimizing Makespan
+Problème 2 : Minimisation du makespan
 
 Contraintes :
 
@@ -25,7 +29,7 @@ Objectif: min max Xi (minimiser le makespan)
 """
 
 # Étape 0: Ouvrir le fichier avec nos variables
-airland_file = open("./airlands/airland2.txt")
+airland_file = open("./airlands/airland8.txt")
 """
 The format of these data files is:
 number of planes (p), freeze time
@@ -43,7 +47,7 @@ s = []  # Tableau des s_i, étant eux-même des tableaux de s_ij
 
 line = airland_file.readline().strip()
 n = int(line.split(" ")[0])
-m = 3  # Nombre de pistes d'atterrissage
+m = 4  # Nombre de pistes d'atterrissage
 
 # Lire le fichier ligne par ligne
 for i in range(0, n):
@@ -73,144 +77,103 @@ print(f"Heures d'atterrissage au plus tard: {L}")
 print(f"Exemple de temps de séparation (premier avion): {s[0]}")
 
 # Étape 1: Création du modèle
-model = cplex.Cplex()
-model.objective.set_sense(model.objective.sense.minimize)
+model = docplex.mp.model.Model("Probleme2")
 
 # Calculer une grande valeur M pour les contraintes
 M = max(L) + max([max(s_i) for s_i in s]) * n
 
 # Étape 2: Ajout des variables de décision
 # x_i: heure d'atterrissage de l'avion i
-x_names = [f"x_{i}" for i in range(n)]
-model.variables.add(names=x_names, lb=[E[i] for i in range(n)], ub=[L[i] for i in range(n)])
+x = model.continuous_var_dict(range(n), lb=lambda i: E[i], ub=lambda i: L[i], name=lambda i: f"x_{i}")
 
 # y_ij: variable binaire pour l'ordre d'atterrissage
-y_names = [f"y_{i}_{j}" for i in range(n) for j in range(n) if i != j]
-model.variables.add(names=y_names, lb=[0] * len(y_names), ub=[1] * len(y_names), types=["B"] * len(y_names))
+y = model.binary_var_dict([(i, j) for i in range(n) for j in range(n) if i != j], name=lambda ij: f"y_{ij[0]}_{ij[1]}")
 
 # delta_ij: variable binaire pour l'affectation des pistes
-delta_names = [f"delta_{i}_{j}" for i in range(n) for j in range(n) if i != j]
-model.variables.add(names=delta_names, lb=[0] * len(delta_names), ub=[1] * len(delta_names),
-                    types=["B"] * len(delta_names))
+delta = model.binary_var_dict([(i, j) for i in range(n) for j in range(n) if i != j], name=lambda ij: f"delta_{ij[0]}_{ij[1]}")
 
 # gamma_ir: variable binaire pour l'affectation de l'avion i à la piste r
-gamma_names = [f"gamma_{i}_{r}" for i in range(n) for r in range(m)]
-model.variables.add(names=gamma_names, lb=[0] * len(gamma_names), ub=[1] * len(gamma_names),
-                    types=["B"] * len(gamma_names))
+gamma = model.binary_var_dict([(i, r) for i in range(n) for r in range(m)], name=lambda ir: f"gamma_{ir[0]}_{ir[1]}")
 
 # Variable pour le makespan (heure du dernier atterrissage)
-makespan_name = "makespan"
-model.variables.add(names=[makespan_name], lb=[0])
+makespan = model.continuous_var(name="makespan", lb=0)
 
 # Définir la fonction objectif: minimiser le makespan
-model.objective.set_linear([(makespan_name, 1.0)])
+model.minimize(makespan)
 
 # Étape 3: Ajout des contraintes
-# Contrainte (3) : makespan >= xi pour tout i
 for i in range(n):
-    ind = [makespan_name, x_names[i]]
-    val = [1.0, -1.0]
-    model.linear_constraints.add(
-        lin_expr=[cplex.SparsePair(ind=ind, val=val)],
-        senses=["G"],
-        rhs=[0]
-    )
+    # Contrainte (3) : makespan >= xi pour tout i
+    model.add_constraint(makespan - x[i] >= 0)
 
     # Contrainte (7): Somme(r=1 à m) de γir = 1
-    ind = [gamma_names[gamma_names.index(f"gamma_{i}_{r}")] for r in range(m)]
-    val = [1.0] * m
-    model.linear_constraints.add(
-        lin_expr=[cplex.SparsePair(ind=ind, val=val)],
-        senses=["E"],
-        rhs=[1]
-    )
+    model.add_constraint(sum(gamma[(i,r)] for r in range(m)) == 1)
 
     for j in range(n):
         # Contrainte (4): Xj - Xi >= Sij * δij - M * Yji
         if i != j:
-            # Récupérer l'indice de y_ji
-            y_ji_idx = y_names.index(f"y_{j}_{i}")
-            delta_ij_idx = delta_names.index(f"delta_{i}_{j}")
-
-            ind = [x_names[j], x_names[i], delta_names[delta_ij_idx], y_names[y_ji_idx]]
-            val = [1.0, -1.0, -s[i][j], M]
-            model.linear_constraints.add(
-                lin_expr=[cplex.SparsePair(ind=ind, val=val)],
-                senses=["G"],
-                rhs=[0]
-            )
+            model.add_constraint(x[j] - x[i] >= delta[(i,j)] * s[i][j] - y[(j,i)] * M)
+            
 
         # Contrainte (5): Yij + Yji = 1
         if i < j:  # Pour éviter la redondance
-            y_ij_idx = y_names.index(f"y_{i}_{j}")
-            y_ji_idx = y_names.index(f"y_{j}_{i}")
-
-            ind = [y_names[y_ij_idx], y_names[y_ji_idx]]
-            val = [1.0, 1.0]
-            model.linear_constraints.add(
-                lin_expr=[cplex.SparsePair(ind=ind, val=val)],
-                senses=["E"],
-                rhs=[1]
-            )
+            model.add_constraint(y[(i,j)] + y[(j,i)] == 1)
+            
 
         # Contrainte (6): δij >= γir + γjr - 1
         if i != j:
-            delta_ij_idx = delta_names.index(f"delta_{i}_{j}")
-
             for r in range(m):
-                gamma_ir_idx = gamma_names.index(f"gamma_{i}_{r}")
-                gamma_jr_idx = gamma_names.index(f"gamma_{j}_{r}")
-
-                ind = [delta_names[delta_ij_idx], gamma_names[gamma_ir_idx], gamma_names[gamma_jr_idx]]
-                val = [1.0, -1.0, -1.0]
-                model.linear_constraints.add(
-                    lin_expr=[cplex.SparsePair(ind=ind, val=val)],
-                    senses=["G"],
-                    rhs=[-1]
-                )
-
+                model.add_constraint(delta[(i,j)] >= gamma[(i,r)] + gamma[(j,r)] - 1)
+                
 # Étape 4: Résolution et affichage de la solution
 try:
+    solution = model.solve()
 
-    model.solve()
+    if(solution):
+        print("\nSolution trouvée :")
+        # model.print_solution()
+        print(f"Makespan (heure du dernier atterrissage): {np.round(makespan.solution_value)}")
 
-    print("\nSolution trouvée :")
-    print(f"Makespan (heure du dernier atterrissage): {model.solution.get_values(makespan_name):.2f}")
+        # Afficher les heures d'atterrissage
+        print("\nHeures d'atterrissage optimales :")
+        landing_times = []
+        for i in range(n):
+            x_val = x[i].solution_value
+            landing_times.append((i, x_val))
 
-    # Afficher les heures d'atterrissage
-    print("\nHeures d'atterrissage optimales :")
-    landing_times = []
-    for i in range(n):
-        x_val = model.solution.get_values(x_names[i])
-        landing_times.append((i, x_val))
+            # Trouver la piste assignée
+            assigned_runway = -1
+            for r in range(m):
+                gamma_var = model.get_var_by_name(f"gamma_{i}_{r}")
+                if abs(gamma_var.solution_value - 1) < 1e-6:  # Presque égal à 1
+                    assigned_runway = r
+                    break
 
-        # Trouver la piste assignée
-        assigned_runway = -1
-        for r in range(m):
-            gamma_val = model.solution.get_values(f"gamma_{i}_{r}")
-            if abs(gamma_val - 1) < 1e-6:  # Presque égal à 1
-                assigned_runway = r
-                break
+            print(f"Avion {i}: atterrissage à {x_val:.2f} sur la piste {assigned_runway}")
 
-        print(f"Avion {i}: atterrissage à {x_val:.2f} sur la piste {assigned_runway}")
+        # Afficher l'ordre d'atterrissage par piste
+        print("\nOrdre d'atterrissage par piste :")
+        landing_order = {}
 
-    # Afficher l'ordre d'atterrissage par piste
-    print("\nOrdre d'atterrissage par piste :")
-    landing_order = {}
+        for i in range(n):
+            for r in range(m):
+                gamma_var = model.get_var_by_name(f"gamma_{i}_{r}")
+                if abs(gamma_var.solution_value - 1) < 1e-6:
+                    x_val = x[i].solution_value
+                    if r not in landing_order:
+                        landing_order[r] = []
+                    landing_order[r].append((i, x_val))
 
-    for i in range(n):
-        for r in range(m):
-            gamma_val = model.solution.get_values(f"gamma_{i}_{r}")
-            if abs(gamma_val - 1) < 1e-6:  # Si l'avion i est assigné à la piste r
-                x_val = model.solution.get_values(x_names[i])
-                if r not in landing_order:
-                    landing_order[r] = []
-                landing_order[r].append((i, x_val))
+        for r in landing_order:
+            # Trier les avions par heure d'atterrissage
+            landing_order[r].sort(key=lambda x: x[1])
+            print(f"Piste {r}: {[i for i, _ in landing_order[r]]}")
+    
+    else:
+        print("Aucune solution trouvée")
 
-    for r in landing_order:
-        # Trier les avions par heure d'atterrissage
-        landing_order[r].sort(key=lambda x: x[1])
-        print(f"Piste {r}: {[i for i, _ in landing_order[r]]}")
-
-except cplex.exceptions.CplexError as e:
+except Exception as e:
     print(f"Erreur lors de la résolution: {e}")
+
+
+    
