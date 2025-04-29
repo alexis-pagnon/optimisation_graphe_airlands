@@ -28,17 +28,8 @@ Objectif: min Σ max(0, xi + ti - Ai)
 """
 
 # Étape 0: Ouvrir le fichier avec nos variables
-airland_file = open("./airlands/airland2.txt")
-"""
-The format of these data files is:
-number of planes (p), freeze time
-for each plane i (i=1,...,p):
-   appearance time, earliest landing time, target landing time,
-   latest landing time, penalty cost per unit of time for landing
-   before target, penalty cost per unit of time for landing
-   after target
-   for each plane j (j=1,...p): separation time required after i lands before j can land
-"""
+airland_file = open("airlands/airland2.txt")
+
 E = []  # Tableau des Ei (earliest landing time)
 T = []  # Tableau des Ti (target landing time)
 L = []  # Tableau des Li (latest landing time)
