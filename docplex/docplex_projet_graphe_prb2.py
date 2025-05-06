@@ -29,7 +29,7 @@ Objectif: min max Xi (minimiser le makespan)
 """
 
 # Étape 0: Ouvrir le fichier avec nos variables
-airland_file = open("airlands/airland8.txt")
+airland_file = open("airlands/airland1.txt")
 
 E = []  # Tableau des Ei (earliest landing time)
 T = []  # Tableau des Ti (target landing time - non utilisé dans le problème 2)

@@ -28,7 +28,7 @@ Objectif: min Σ max(0, xi + ti - Ai)
 """
 
 # Étape 0: Ouvrir le fichier avec nos variables
-airland_file = open("airlands/airland2.txt")
+airland_file = open("airlands/airland1.txt")
 
 E = []  # Tableau des Ei (earliest landing time)
 T = []  # Tableau des Ti (target landing time)
@@ -38,7 +38,7 @@ A = []  # Heure limite d'arrivée au point de stationnement (supposée égale à
 
 line = airland_file.readline().strip()
 n = int(line.split(" ")[0])
-m = 3  # Nombre de pistes d'atterrissage
+m = 4  # Nombre de pistes d'atterrissage
 
 # Lire le fichier ligne par ligne
 for i in range(0, n):

@@ -47,7 +47,7 @@ c_plus = []  # Coût de pénalité par unité de temps pour atterrissage après 
 
 line = airland_file.readline().strip()
 n = int(line.split(" ")[0])
-m = 2  # Nombre de pistes d'atterrissage (à ajuster selon le problème)
+m = 4  # Nombre de pistes d'atterrissage (à ajuster selon le problème)
 
 # Lire le fichier ligne par ligne
 for i in range(0, n):
@@ -160,9 +160,9 @@ try:
 
             status = "a l'heure"
             if alpha_val > 1e-6:
-                status = f"en avance de {alpha_val:.2f}"
+                status = f"en retard de {alpha_val:.2f}"
             elif beta_val > 1e-6:
-                status = f"en retard de {beta_val:.2f}"
+                status = f"en avance de {beta_val:.2f}"
 
             print(f"Avion {i}: atterrissage à {x_val:.2f} ({status}) sur la piste {assigned_runway}")
 
