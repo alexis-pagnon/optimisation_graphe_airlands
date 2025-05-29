@@ -24,6 +24,7 @@ Yij+Yji=1                                  (5)
 Somme(r=1 à m) de γir = 1                  (7)
 Yij, δij, γir ∈ {0,1}                      (8)
 Xi >= 0                                    (9)
+Makespan >= 0                              (10)
 
 Objectif: min max Xi (minimiser le makespan)  
 """
