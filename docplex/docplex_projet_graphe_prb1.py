@@ -1,5 +1,5 @@
 # --------------------------------------------------
-# Projet Optimisation et Graphes
+# Projet Optimisation et Graphes - Problème 1
 # JAMIN Antoine, PAGNON Alexis, SANCHEZ Adam, DUMOULIN Simon
 # 31/05/2025
 # --------------------------------------------------
